@@ -337,18 +337,29 @@ def update_network(network_id: str, update_data: NetworkUpdateSchema) -> str:
 
 # Get clients from Meraki
 @mcp.tool()
-def get_clients(network_id: str, timespan: int = 86400) -> str:
+def get_clients(network_id: str, timespan: int = 86400, per_page: int = 1000, total_pages: str = "all") -> str:
     """
     Get a list of clients from a specific Meraki network.
 
     Args:
         network_id (str): The ID of the Meraki network.
-        timespan (int): The timespan in seconds to get clients (default: 24 hours)
+        timespan (int): The timespan in seconds to get clients (default: 24 hours).
+        per_page (int): Page size for the underlying Meraki API call. Min 10, max 1000.
+            Default 1000 maximizes throughput.
+        total_pages (str | int): How many pages to fetch. 'all' (default) auto-paginates
+            until the API is exhausted (the Meraki SDK walks cursors internally). Pass
+            an integer as a string (e.g. '3') to cap the fetch.
 
     Returns:
         str: JSON-formatted list of clients.
     """
-    clients = dashboard.networks.getNetworkClients(network_id, timespan=timespan)
+    # Meraki SDK accepts total_pages='all' or an int; coerce digit strings to int.
+    tp: object = total_pages
+    if isinstance(total_pages, str) and total_pages.isdigit():
+        tp = int(total_pages)
+    clients = dashboard.networks.getNetworkClients(
+        network_id, timespan=timespan, perPage=per_page, total_pages=tp,
+    )
     return json.dumps(clients, indent=2)
 
 # Get client details
