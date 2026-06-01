@@ -41,12 +41,17 @@ if not MERAKI_API_KEY:
     sys.exit(1)
 
 # Initialize Meraki API client using Meraki SDK
+# `single_request_timeout` and a reduced `maximum_retries` cap a single tool
+# call's worst-case duration well under the MCP proxy's 60s request timeout.
+# Without these limits a single transient 5xx (3 retries × ~30s default per
+# request) can blow past 60s and surface as `MCP error -32001: timeout`.
 dashboard = meraki.DashboardAPI(
     api_key=MERAKI_API_KEY,
     base_url=MERAKI_BASE_URL,
     suppress_logging=True,
     caller="MerakiMagicMCP/0.1.0 Anthropic",
-    maximum_retries=3,
+    maximum_retries=2,
+    single_request_timeout=20,
     wait_on_rate_limit=True,
 )
 
@@ -88,6 +93,8 @@ async_get_device = to_async(dashboard.devices.getDevice)
 async_update_device = to_async(dashboard.devices.updateDevice)
 async_get_wireless_ssids = to_async(dashboard.wireless.getNetworkWirelessSsids)
 async_update_wireless_ssid = to_async(dashboard.wireless.updateNetworkWirelessSsid)
+async_get_network_events = to_async(dashboard.networks.getNetworkEvents)
+async_get_network_alerts_history = to_async(dashboard.networks.getNetworkAlertsHistory)
 
 ###################
 # SCHEMA DEFINITIONS
@@ -712,9 +719,34 @@ def get_organization_webhook_logs(org_id: str = None, timespan: int = 86400) -> 
 
 # Get network events
 @mcp.tool()
-def get_network_events(network_id: str, timespan: int = 86400, per_page: int = 100) -> str:
-    """Get network events history"""
-    events = dashboard.networks.getNetworkEvents(network_id, timespan=timespan, perPage=per_page)
+async def get_network_events(
+    network_id: str,
+    product_type: str,
+    timespan: int = 86400,
+    per_page: int = 100,
+    total_pages: str = "1",
+) -> str:
+    """Get network events history.
+
+    Args:
+        network_id: The ID of the Meraki network.
+        product_type: REQUIRED for combined networks. One of: wireless, switch,
+            appliance, systemsManager, camera, cellularGateway, sensor.
+        timespan: Time window in seconds (default: 24 hours).
+        per_page: Page size (default 100, max 1000).
+        total_pages: How many pages to fetch. Default '1' to avoid full-history
+            sweeps that exceed the proxy timeout; pass 'all' for the complete
+            history at the cost of latency.
+    """
+    # The SDK accepts total_pages as int or 'all'; coerce numeric strings.
+    tp: object = total_pages if total_pages == "all" else int(total_pages)
+    events = await async_get_network_events(
+        network_id,
+        productType=product_type,
+        timespan=timespan,
+        perPage=per_page,
+        total_pages=tp,
+    )
     return json.dumps(events, indent=2)
 
 # Get network event types
@@ -726,9 +758,26 @@ def get_network_event_types(network_id: str) -> str:
 
 # Get network alerts history
 @mcp.tool()
-def get_network_alerts_history(network_id: str, timespan: int = 86400) -> str:
-    """Get network alerts history"""
-    alerts = dashboard.networks.getNetworkAlertsHistory(network_id, timespan=timespan)
+async def get_network_alerts_history(
+    network_id: str,
+    timespan: int = 86400,
+    per_page: int = 100,
+    total_pages: str = "1",
+) -> str:
+    """Get network alerts history.
+
+    Args:
+        network_id: The ID of the Meraki network.
+        timespan: Time window in seconds (default: 24 hours).
+        per_page: Page size (default 100, max 1000).
+        total_pages: How many pages to fetch. Default '1' to avoid full-history
+            sweeps that exceed the proxy timeout; pass 'all' for the complete
+            history at the cost of latency.
+    """
+    tp: object = total_pages if total_pages == "all" else int(total_pages)
+    alerts = await async_get_network_alerts_history(
+        network_id, timespan=timespan, perPage=per_page, total_pages=tp,
+    )
     return json.dumps(alerts, indent=2)
 
 # Get network alerts settings
