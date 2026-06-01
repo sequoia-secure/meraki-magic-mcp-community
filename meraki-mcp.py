@@ -602,13 +602,6 @@ def create_switch_vlan(network_id: str, vlan_id: int, name: str, subnet: str = N
 # APPLIANCE TOOLS     #
 #######################
 
-# Get security center
-@mcp.tool()
-def get_security_center(network_id: str) -> str:
-    """Get security information for a network"""
-    security = dashboard.appliance.getNetworkApplianceSecurityCenter(network_id)
-    return json.dumps(security, indent=2)
-
 # Get VPN status
 @mcp.tool()
 def get_vpn_status(network_id: str) -> str:
