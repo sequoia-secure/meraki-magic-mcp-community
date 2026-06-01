@@ -243,9 +243,9 @@ async def get_networks(org_id: str = None) -> str:
 # Get devices from Meraki
 @mcp.tool()
 async def get_devices(org_id: str = None) -> str:
-    """Get a list of devices from Meraki"""
+    """Get a list of devices from Meraki (auto-paginates)"""
     organization_id = org_id or MERAKI_ORG_ID
-    devices = await async_get_organization_devices(organization_id)
+    devices = await async_get_organization_devices(organization_id, total_pages='all', perPage=1000)
     return json.dumps(devices, indent=2)
 
 # Create network in Meraki
@@ -285,7 +285,7 @@ def get_organization_status(org_id: str = None) -> str:
 def get_organization_inventory(org_id: str = None) -> str:
     """Get the inventory for an organization"""
     organization_id = org_id or MERAKI_ORG_ID
-    inventory = dashboard.organizations.getOrganizationInventoryDevices(organization_id)
+    inventory = dashboard.organizations.getOrganizationInventoryDevices(organization_id, total_pages='all', perPage=1000)
     return json.dumps(inventory, indent=2)
 
 # Get organization license state
@@ -301,7 +301,7 @@ def get_organization_license(org_id: str = None) -> str:
 def get_organization_conf_change(org_id: str = None) -> str:
     """Get the org change state for an organization"""
     organization_id = org_id or MERAKI_ORG_ID
-    org_config_changes = dashboard.organizations.getOrganizationConfigurationChanges(organization_id)
+    org_config_changes = dashboard.organizations.getOrganizationConfigurationChanges(organization_id, total_pages='all', perPage=1000)
     return json.dumps(org_config_changes, indent=2)
 
 #######################
@@ -344,9 +344,9 @@ def update_network(network_id: str, update_data: NetworkUpdateSchema) -> str:
 
 # Get clients from Meraki
 @mcp.tool()
-def get_clients(network_id: str, timespan: int = 86400, per_page: int = 1000, total_pages: str = "all") -> str:
+def get_clients(network_id: str, timespan: int = 86400, per_page: int = 1000, total_pages: str = "all", statuses: str = None) -> str:
     """
-    Get a list of clients from a specific Meraki network.
+    Get a list of clients from a specific Meraki network (auto-paginates).
 
     Args:
         network_id (str): The ID of the Meraki network.
@@ -356,6 +356,7 @@ def get_clients(network_id: str, timespan: int = 86400, per_page: int = 1000, to
         total_pages (str | int): How many pages to fetch. 'all' (default) auto-paginates
             until the API is exhausted (the Meraki SDK walks cursors internally). Pass
             an integer as a string (e.g. '3') to cap the fetch.
+        statuses (str): Filter by status - 'Online', 'Offline', or None for all.
 
     Returns:
         str: JSON-formatted list of clients.
@@ -364,9 +365,10 @@ def get_clients(network_id: str, timespan: int = 86400, per_page: int = 1000, to
     tp: object = total_pages
     if isinstance(total_pages, str) and total_pages.isdigit():
         tp = int(total_pages)
-    clients = dashboard.networks.getNetworkClients(
-        network_id, timespan=timespan, perPage=per_page, total_pages=tp,
-    )
+    kwargs = {"timespan": timespan, "perPage": per_page, "total_pages": tp}
+    if statuses:
+        kwargs["statuses"] = [statuses]
+    clients = dashboard.networks.getNetworkClients(network_id, **kwargs)
     return json.dumps(clients, indent=2)
 
 # Get client details
@@ -702,7 +704,7 @@ def create_organization_admin(org_id: str, email: str, name: str, org_access: st
 def get_organization_api_requests(org_id: str = None, timespan: int = 86400) -> str:
     """Get organization API request history"""
     organization_id = org_id or MERAKI_ORG_ID
-    requests = dashboard.organizations.getOrganizationApiRequests(organization_id, timespan=timespan)
+    requests = dashboard.organizations.getOrganizationApiRequests(organization_id, timespan=timespan, total_pages='all', perPage=1000)
     return json.dumps(requests, indent=2)
 
 # Get organization webhook logs
@@ -710,7 +712,7 @@ def get_organization_api_requests(org_id: str = None, timespan: int = 86400) -> 
 def get_organization_webhook_logs(org_id: str = None, timespan: int = 86400) -> str:
     """Get organization webhook logs"""
     organization_id = org_id or MERAKI_ORG_ID
-    logs = dashboard.organizations.getOrganizationWebhooksLogs(organization_id, timespan=timespan)
+    logs = dashboard.organizations.getOrganizationWebhooksLogs(organization_id, timespan=timespan, total_pages='all', perPage=1000)
     return json.dumps(logs, indent=2)
 
 #######################
