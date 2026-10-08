@@ -24,18 +24,6 @@
 
 ## Known Bugs
 
-**Manual device status tool calls a non-existent SDK method:**
-- Symptoms: Invoking `get_device_status` will fail at runtime because `dashboard.devices.getDeviceStatuses` is not present in the installed Meraki SDK.
-- Files: `meraki-mcp.py`
-- Trigger: Call `get_device_status(serial=...)`.
-- Workaround: Use `search_methods(keyword="status")` and `get_method_info(...)` in `meraki-mcp-dynamic.py` to find the current SDK equivalent before calling it through `call_meraki_api(...)`.
-
-**Manual device uplink tool calls a non-existent SDK method:**
-- Symptoms: Invoking `get_device_uplink` will fail at runtime because `dashboard.devices.getDeviceUplink` is not present in the installed Meraki SDK.
-- Files: `meraki-mcp.py`
-- Trigger: Call `get_device_uplink(serial=...)`.
-- Workaround: Use the discovery helpers in `meraki-mcp-dynamic.py` to find the current devices/uplink endpoint and call that instead.
-
 **Dynamic README examples refer to tools that do not exist:**
 - Symptoms: The documented examples use `list_available_tools`, `search_tools`, `get_tool_info`, `organizations_getOrganizations`, and `networks_getNetworkClients`, but the implementation exposes `list_all_methods`, `search_methods`, `get_method_info`, 12 pre-registered tool names, and `call_meraki_api(...)`.
 - Files: `README-DYNAMIC.md`, `meraki-mcp-dynamic.py`
@@ -142,11 +130,11 @@
 
 ## Test Coverage Gaps
 
-**Manual tool compatibility is untested:**
-- What's not tested: Registration and runtime invocation of curated manual tools, including broken wrappers like `get_device_status` and `get_device_uplink`.
+**Manual tool runtime behaviour is lightly tested:**
+- What's not tested: Live invocation of most curated manual tools. `tests/test_sdk_methods.py` checks that every `dashboard.<section>.<method>` call in `meraki-mcp.py` exists in the installed SDK, which catches SDK drift, but not response-shape changes.
 - Files: `meraki-mcp.py`
-- Risk: SDK drift remains latent until a user calls the affected tool in a live Meraki environment.
-- Priority: High
+- Risk: A response-shape change surfaces only when a user calls the affected tool.
+- Priority: Medium
 
 **Dynamic safety controls are untested:**
 - What's not tested: `READ_ONLY_MODE`, prefix-based write detection, cache invalidation, path validation, large-response truncation, and cache-file retrieval behavior.
