@@ -8,6 +8,7 @@ from typing import Any, MutableMapping
 
 
 DEFAULT_MERAKI_BASE_URL = "https://api.meraki.com/api/v1"
+DEFAULT_MERAKI_CALLER = "MagicMCP CiscoDevNet"
 CONFIRM_DESTRUCTIVE_ACTION_PARAM = "confirm_destructive_action"
 
 READ_ONLY_PREFIXES = ("get", "list")
@@ -16,6 +17,7 @@ WRITE_PREFIXES = (
     "update",
     "delete",
     "remove",
+    "release",
     "claim",
     "reboot",
     "assign",
@@ -30,7 +32,7 @@ WRITE_PREFIXES = (
     "generate",
     "blink",
 )
-DESTRUCTIVE_PREFIXES = ("delete", "remove")
+DESTRUCTIVE_PREFIXES = ("delete", "remove", "release")
 
 _TRUE_VALUES = {"1", "true", "yes", "y", "on"}
 _FALSE_VALUES = {"0", "false", "no", "n", "off"}
@@ -69,6 +71,11 @@ def get_meraki_base_url() -> str:
     return configured or DEFAULT_MERAKI_BASE_URL
 
 
+def get_meraki_caller() -> str:
+    configured = os.getenv("MERAKI_PYTHON_SDK_CALLER", "").strip()
+    return configured or DEFAULT_MERAKI_CALLER
+
+
 def is_read_only_operation(method_name: str) -> bool:
     normalized = method_name.lower()
     return any(normalized.startswith(prefix) for prefix in READ_ONLY_PREFIXES)
@@ -93,7 +100,7 @@ def write_blocked_payload(method_name: str) -> dict[str, Any]:
     return {
         "error": "Write operation blocked - READ_ONLY_MODE is enabled",
         "method": method_name,
-        "hint": "Set READ_ONLY_MODE=false in .env to enable write operations",
+        "hint": "Set READ_ONLY_MODE=false in the MCP client env or process environment",
     }
 
 
