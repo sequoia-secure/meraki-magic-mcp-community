@@ -275,9 +275,9 @@ def delete_network(network_id: str, confirm_destructive_action: bool = False) ->
 # Get organization status
 @mcp.tool()
 def get_organization_status(org_id: str = None) -> str:
-    """Get the status and health of an organization"""
+    """Get device status counts (online, alerting, offline, dormant) for an organization"""
     organization_id = org_id or MERAKI_ORG_ID
-    status = dashboard.organizations.getOrganizationStatus(organization_id)
+    status = dashboard.organizations.getOrganizationDevicesStatusesOverview(organization_id)
     return json.dumps(status, indent=2)
 
 # Get organization inventory
@@ -508,15 +508,23 @@ def get_device_clients(serial: str, timespan: int = 86400) -> str:
 @mcp.tool()
 def get_device_status(serial: str) -> str:
     """Get the current status of a device"""
-    status = dashboard.devices.getDeviceStatuses(serial)
-    return json.dumps(status, indent=2)
+    statuses = dashboard.organizations.getOrganizationDevicesStatuses(
+        MERAKI_ORG_ID, total_pages="all", serials=[serial]
+    )
+    if not statuses:
+        return json.dumps({"error": f"No device with serial {serial} in this organization"}, indent=2)
+    return json.dumps(statuses[0], indent=2)
 
 # Get device uplink status
 @mcp.tool()
 def get_device_uplink(serial: str) -> str:
-    """Get the uplink status of a device"""
-    uplink = dashboard.devices.getDeviceUplink(serial)
-    return json.dumps(uplink, indent=2)
+    """Get the uplink addresses (interface, IP, gateway, DNS, public IP) of a device"""
+    uplinks = dashboard.organizations.getOrganizationDevicesUplinksAddressesByDevice(
+        MERAKI_ORG_ID, total_pages="all", serials=[serial]
+    )
+    if not uplinks:
+        return json.dumps({"error": f"No uplink data for serial {serial} in this organization"}, indent=2)
+    return json.dumps(uplinks[0], indent=2)
 
 #######################
 # WIRELESS TOOLS      #
@@ -584,28 +592,107 @@ def update_switch_port(serial: str, port_id: str, name: str = None, tags: list[s
     result = dashboard.switch.updateDeviceSwitchPort(serial, port_id, **kwargs)
     return json.dumps(result, indent=2)
 
-# Get switch VLAN settings
+# Get the VLANs in use on a network's switches
+def _parse_vlan_list(value) -> list[int]:
+    """Parse a trunk allowedVlans value such as "1,3,5-7" into VLAN IDs. "all" yields []."""
+    vlans: list[int] = []
+    if not isinstance(value, str) or value.strip().lower() == "all":
+        return vlans
+    for part in value.split(","):
+        part = part.strip()
+        if "-" in part:
+            low, _, high = part.partition("-")
+            if low.strip().isdigit() and high.strip().isdigit():
+                vlans.extend(range(int(low), int(high) + 1))
+        elif part.isdigit():
+            vlans.append(int(part))
+    return vlans
+
+
 @mcp.tool()
 def get_switch_vlans(network_id: str) -> str:
-    """Get VLANs for a network"""
-    vlans = dashboard.switch.getNetworkSwitchVlans(network_id)
-    return json.dumps(vlans, indent=2)
+    """List the VLANs in use on a network's switches.
 
-# Create switch VLAN
-@mcp.tool()
-def create_switch_vlan(network_id: str, vlan_id: int, name: str, subnet: str = None, appliance_ip: str = None) -> str:
-    """Create a switch VLAN"""
-    blocked = _guard_write("createNetworkSwitchVlan")
-    if blocked:
-        return blocked
-    kwargs = {}
-    if subnet:
-        kwargs['subnet'] = subnet
-    if appliance_ip:
-        kwargs['applianceIp'] = appliance_ip
+    Meraki has no network-level VLAN object for switches: a VLAN exists as the
+    VLAN number on ports, and has a name and subnet only where a switch routes
+    it (a layer 3 interface). This builds the list from both: per VLAN, how many
+    access, voice and trunk-native ports use it and on which switches, plus the
+    name, subnet and interface IP of any layer 3 interface for it. VLANs routed
+    by another device (e.g. a firewall) appear without a name.
+    """
+    switches = dashboard.switch.getOrganizationSwitchPortsBySwitch(
+        MERAKI_ORG_ID, total_pages="all", networkIds=[network_id]
+    )
 
-    result = dashboard.switch.createNetworkSwitchVlan(network_id, vlan_id, name, **kwargs)
-    return json.dumps(result, indent=2)
+    vlans: dict[int, dict] = {}
+
+    def entry(vlan_id: int) -> dict:
+        return vlans.setdefault(vlan_id, {
+            "vlanId": vlan_id,
+            "accessPorts": 0,
+            "voicePorts": 0,
+            "trunkNativePorts": 0,
+            "trunkAllowedPorts": 0,
+            "switches": set(),
+        })
+
+    trunks_allowing_all = 0
+    for switch in switches:
+        name = switch.get("name") or switch.get("serial")
+        for port in switch.get("ports", []):
+            if port.get("type") == "access":
+                if isinstance(port.get("vlan"), int):
+                    entry(port["vlan"])["accessPorts"] += 1
+                    entry(port["vlan"])["switches"].add(name)
+                if isinstance(port.get("voiceVlan"), int):
+                    entry(port["voiceVlan"])["voicePorts"] += 1
+                    entry(port["voiceVlan"])["switches"].add(name)
+            elif port.get("type") == "trunk":
+                if isinstance(port.get("vlan"), int):
+                    entry(port["vlan"])["trunkNativePorts"] += 1
+                    entry(port["vlan"])["switches"].add(name)
+                allowed = port.get("allowedVlans")
+                if isinstance(allowed, str) and allowed.strip().lower() == "all":
+                    trunks_allowing_all += 1
+                for vlan_id in _parse_vlan_list(allowed):
+                    if vlan_id in vlans:
+                        vlans[vlan_id]["trunkAllowedPorts"] += 1
+
+    # Layer 3 interfaces carry the only VLAN names and subnets a switch has.
+    # Stacked switches report theirs at the stack; layer 2-only models return
+    # an error, which just means they route nothing.
+    interfaces = []
+    for switch in switches:
+        try:
+            interfaces += dashboard.switch.getDeviceSwitchRoutingInterfaces(switch["serial"])
+        except Exception:
+            pass
+    try:
+        for stack in dashboard.switch.getNetworkSwitchStacks(network_id):
+            try:
+                interfaces += dashboard.switch.getNetworkSwitchStackRoutingInterfaces(network_id, stack["id"])
+            except Exception:
+                pass
+    except Exception:
+        pass
+    for interface in interfaces:
+        if isinstance(interface.get("vlanId"), int):
+            item = entry(interface["vlanId"])
+            item.update({
+                "name": interface.get("name"),
+                "subnet": interface.get("subnet"),
+                "interfaceIp": interface.get("interfaceIp"),
+            })
+
+    result = sorted(vlans.values(), key=lambda v: v["vlanId"])
+    for item in result:
+        item["switches"] = sorted(item["switches"])
+    return json.dumps({
+        "networkId": network_id,
+        "switchCount": len(switches),
+        "trunkPortsAllowingAllVlans": trunks_allowing_all,
+        "vlans": result,
+    }, indent=2)
 
 #######################
 # APPLIANCE TOOLS     #

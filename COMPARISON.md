@@ -63,7 +63,6 @@ You now have **TWO versions** of the Meraki MCP server:
 - get_switch_ports
 - update_switch_port
 - get_switch_vlans
-- create_switch_vlan
 
 **Appliance** (4 tools)
 - get_security_center

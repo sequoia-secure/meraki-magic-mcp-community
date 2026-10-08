@@ -320,7 +320,7 @@ This guide provides a comprehensive overview of the curated network tools availa
 ### Basic Organization Operations
 - **`get_organizations()`** - Get a list of organizations the user has access to
 - **`get_organization_details(org_id)`** - Get details for a specific organization
-- **`get_organization_status(org_id)`** - Get the status and health of an organization
+- **`get_organization_status(org_id)`** - Get device status counts (online, alerting, offline, dormant) for an organization
 - **`get_organization_inventory(org_id)`** - Get the inventory for an organization
 - **`get_organization_license(org_id)`** - Get the license state for an organization
 - **`get_organization_conf_change(org_id)`** - Get the org change state for an organization
@@ -368,7 +368,7 @@ This guide provides a comprehensive overview of the curated network tools availa
 - **`get_network_devices(network_id)`** - Get a list of devices in a specific network
 - **`get_device_details(serial)`** - Get details for a specific device by serial number
 - **`get_device_status(serial)`** - Get the current status of a device
-- **`get_device_uplink(serial)`** - Get the uplink status of a device
+- **`get_device_uplink(serial)`** - Get the uplink addresses of a device
 
 ### Device Operations
 - **`update_device(serial, device_settings)`** - Update a device in the Meraki organization
@@ -417,8 +417,7 @@ This guide provides a comprehensive overview of the curated network tools availa
 ### Basic Switch Operations
 - **`get_switch_ports(serial)`** - Get ports for a switch
 - **`update_switch_port(serial, port_id, name, tags, enabled, vlan)`** - Update a switch port
-- **`get_switch_vlans(network_id)`** - Get VLANs for a network
-- **`create_switch_vlan(network_id, vlan_id, name, subnet, appliance_ip)`** - Create a switch VLAN
+- **`get_switch_vlans(network_id)`** - List the VLANs in use on a network's switches, with port counts and any layer 3 interface name/subnet
 
 ### Advanced Switch Management
 - **`get_switch_port_statuses(serial)`** - Get switch port statuses
