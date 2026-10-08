@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any, TypedDict, Union, Callable
 from pydantic import BaseModel, Field
 from mcp.server.fastmcp import FastMCP
 from meraki_mcp_config import (
+    apply_ipv4_only_resolution,
     get_meraki_base_url,
     get_meraki_caller,
     get_read_only_mode,
@@ -39,6 +40,8 @@ if not MERAKI_API_KEY:
         file=sys.stderr,
     )
     sys.exit(1)
+
+apply_ipv4_only_resolution()
 
 # Initialize Meraki API client using Meraki SDK
 # `single_request_timeout` and a reduced `maximum_retries` cap a single tool

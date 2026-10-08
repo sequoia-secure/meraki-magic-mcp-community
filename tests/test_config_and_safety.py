@@ -184,6 +184,41 @@ class ConfigTests(unittest.TestCase):
         with patch.dict(os.environ, {"MERAKI_BASE_URL": "  "}, clear=True):
             self.assertEqual(config.DEFAULT_MERAKI_BASE_URL, config.get_meraki_base_url())
 
+    def test_ipv4_only_resolution_is_opt_in(self):
+        calls = []
+
+        def fake_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            calls.append(family)
+            return []
+
+        with patch.object(config, "_original_getaddrinfo", None), \
+                patch.object(config.socket, "getaddrinfo", fake_getaddrinfo):
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertFalse(config.apply_ipv4_only_resolution())
+            config.socket.getaddrinfo("api.meraki.com", 443)
+            self.assertEqual([config.socket.AF_UNSPEC], calls)
+
+    def test_ipv4_only_resolution_requests_ipv4_for_unspecified_family(self):
+        calls = []
+
+        def fake_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            calls.append(family)
+            return []
+
+        with patch.object(config, "_original_getaddrinfo", None), \
+                patch.object(config.socket, "getaddrinfo", fake_getaddrinfo):
+            with patch.dict(os.environ, {"MERAKI_FORCE_IPV4": "true"}, clear=True):
+                self.assertTrue(config.apply_ipv4_only_resolution())
+                # A second call must not wrap the resolver again.
+                self.assertTrue(config.apply_ipv4_only_resolution())
+            config.socket.getaddrinfo("api.meraki.com", 443)
+            config.socket.getaddrinfo("api.meraki.com", 443, family=config.socket.AF_UNSPEC)
+            config.socket.getaddrinfo("api.meraki.com", 443, config.socket.AF_INET6)
+            self.assertEqual(
+                [config.socket.AF_INET, config.socket.AF_INET, config.socket.AF_INET6],
+                calls,
+            )
+
     def test_operation_classification(self):
         self.assertTrue(config.is_write_operation("createOrganizationNetwork"))
         self.assertTrue(config.is_write_operation("cycleDeviceSwitchPorts"))

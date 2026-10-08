@@ -104,6 +104,8 @@ Get your API key from: **Meraki Dashboard → Organization → Settings → Dash
 
 Use `MERAKI_BASE_URL` to point the MCP server at another Meraki region or compatible Dashboard API base URI.
 
+Set `MERAKI_FORCE_IPV4=true` to resolve the Dashboard API over IPv4 only. Use it on hosts that have an IPv6 address but no working IPv6 egress, where each request otherwise waits out a connect timeout per IPv6 address before falling back to IPv4.
+
 API calls identify this server with the default caller `MagicMCP CiscoDevNet`. Set `MERAKI_PYTHON_SDK_CALLER` in the MCP client `env` block or process environment to use your own application and vendor identifier. Follow the [Meraki user agent format](https://developer.cisco.com/meraki/api-v1/user-agents-overview/).
 
 ## Deployment Options
