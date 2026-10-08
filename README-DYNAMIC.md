@@ -65,12 +65,15 @@ call_meraki_api(
 
 The server starts in read-only mode by default. Set `READ_ONLY_MODE=false` only when you intend to run create/update/delete/remove operations. Destructive `delete*` and `remove*` calls also require `confirm_destructive_action=true` in `parameters`.
 
-Set `MERAKI_BASE_URL` to use a non-default Meraki Dashboard API region, for example:
+Set these variables in the MCP client `env` block or process environment to select a region and caller identifier:
 
-```env
-MERAKI_BASE_URL="https://api.meraki.com/api/v1"
-READ_ONLY_MODE=true
+```bash
+export MERAKI_BASE_URL="https://api.meraki.com/api/v1"
+export MERAKI_PYTHON_SDK_CALLER="MagicMCP CiscoDevNet"
+export READ_ONLY_MODE=true
 ```
+
+`MERAKI_PYTHON_SDK_CALLER` defaults to `MagicMCP CiscoDevNet` and must follow the [Meraki user agent format](https://developer.cisco.com/meraki/api-v1/user-agents-overview/).
 
 ## Helper Tools Included
 
@@ -98,7 +101,14 @@ Update your `claude_desktop_config.json`:
         "run",
         "-t", "stdio",
         "/path/to/meraki-magic-mcp-community/meraki-mcp-dynamic.py"
-      ]
+      ],
+      "env": {
+        "MERAKI_API_KEY": "your_api_key_here",
+        "MERAKI_ORG_ID": "your_org_id_here",
+        "MERAKI_BASE_URL": "https://api.meraki.com/api/v1",
+        "MERAKI_PYTHON_SDK_CALLER": "MagicMCP CiscoDevNet",
+        "READ_ONLY_MODE": "true"
+      }
     }
   }
 }
@@ -109,10 +119,10 @@ Replace `/path/to/` with your actual installation path.
 ### Option 2: HTTP Server (remote access)
 
 ```bash
-# In .env:
-MCP_TRANSPORT=http
-MCP_HOST=0.0.0.0
-MCP_PORT=8000
+export MERAKI_API_KEY="your_api_key_here"
+export MCP_TRANSPORT=http
+export MCP_HOST=0.0.0.0
+export MCP_PORT=8000
 
 python meraki-mcp-dynamic.py
 # Server at http://<host>:8000/mcp
@@ -121,6 +131,8 @@ python meraki-mcp-dynamic.py
 ### Option 3: Docker
 
 ```bash
+export MERAKI_API_KEY="your_api_key_here"
+export MERAKI_ORG_ID="your_org_id_here"
 docker compose up -d
 # Server at http://localhost:8000/mcp
 ```
@@ -251,7 +263,7 @@ All tools include built-in error handling that returns JSON with error details:
 
 ## Auto-fills Organization ID
 
-If a method requires `organizationId` and you haven't provided it, the tool will automatically use your `MERAKI_ORG_ID` from `.env` file.
+If a method requires `organizationId` and you haven't provided it, the tool will automatically use your `MERAKI_ORG_ID` from the process environment.
 
 ## Next Steps
 

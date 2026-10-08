@@ -5,8 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastmcp>=3.2.4,<4",
+    # Upper bounds hold each dependency below its next major: mcp 2.x removed
+    # mcp.server.fastmcp, which this server imports.
+    "fastmcp>=3.4.4,<4",
     "mcp[cli]>=1.28.1,<2",
-    "meraki>=3.1.0,<4",
-    "uvicorn>=0.46.0",
+    "meraki>=4.5.0,<5",
+    "uvicorn>=0.51.0",
 ]

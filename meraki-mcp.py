@@ -11,16 +11,12 @@ import functools
 from typing import Dict, List, Optional, Any, TypedDict, Union, Callable
 from pydantic import BaseModel, Field
 from mcp.server.fastmcp import FastMCP
-from dotenv import load_dotenv
-from pathlib import Path
 from meraki_mcp_config import (
     get_meraki_base_url,
+    get_meraki_caller,
     get_read_only_mode,
     guard_write_operation,
 )
-
-# Load environment variables from .env file
-load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # Transport configuration
 MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "stdio").lower()
@@ -34,10 +30,14 @@ mcp = FastMCP("Meraki Magic MCP", host=MCP_HOST, port=MCP_PORT)
 MERAKI_API_KEY = os.getenv("MERAKI_API_KEY")
 MERAKI_ORG_ID = os.getenv("MERAKI_ORG_ID")
 MERAKI_BASE_URL = get_meraki_base_url()
+MERAKI_CALLER = get_meraki_caller()
 READ_ONLY_MODE = get_read_only_mode()
 
 if not MERAKI_API_KEY:
-    print("FATAL: MERAKI_API_KEY is not set. Add it to .env or the environment.", file=sys.stderr)
+    print(
+        "FATAL: MERAKI_API_KEY is not set. Set it in the MCP client env block or the process environment.",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 # Initialize Meraki API client using Meraki SDK
@@ -48,8 +48,8 @@ if not MERAKI_API_KEY:
 dashboard = meraki.DashboardAPI(
     api_key=MERAKI_API_KEY,
     base_url=MERAKI_BASE_URL,
+    caller=MERAKI_CALLER,
     suppress_logging=True,
-    caller="MerakiMagicMCP/0.1.0 Anthropic",
     maximum_retries=2,
     single_request_timeout=20,
     wait_on_rate_limit=True,

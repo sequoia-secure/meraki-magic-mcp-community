@@ -113,9 +113,6 @@ def fake_runtime_modules():
     fake_meraki = types.ModuleType("meraki")
     fake_meraki.DashboardAPI = FakeDashboardAPI
 
-    fake_dotenv = types.ModuleType("dotenv")
-    fake_dotenv.load_dotenv = lambda *args, **kwargs: None
-
     fake_mcp = types.ModuleType("mcp")
     fake_mcp_server = types.ModuleType("mcp.server")
     fake_fastmcp = types.ModuleType("mcp.server.fastmcp")
@@ -127,7 +124,6 @@ def fake_runtime_modules():
 
     module_overrides = {
         "meraki": fake_meraki,
-        "dotenv": fake_dotenv,
         "mcp": fake_mcp,
         "mcp.server": fake_mcp_server,
         "mcp.server.fastmcp": fake_fastmcp,
@@ -157,6 +153,13 @@ def load_script_module(filename, module_name):
 
 
 class ConfigTests(unittest.TestCase):
+    def test_caller_default_and_override(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(config.DEFAULT_MERAKI_CALLER, config.get_meraki_caller())
+
+        with patch.dict(os.environ, {"MERAKI_PYTHON_SDK_CALLER": "InventoryTool ExampleOrg"}, clear=True):
+            self.assertEqual("InventoryTool ExampleOrg", config.get_meraki_caller())
+
     def test_read_only_defaults_to_true_and_supports_alias(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertTrue(config.get_read_only_mode())
@@ -188,10 +191,42 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.is_write_operation("blinkDeviceLeds"))
         self.assertTrue(config.is_destructive_operation("deleteNetwork"))
         self.assertTrue(config.is_destructive_operation("removeNetworkDevices"))
+        self.assertTrue(config.is_write_operation("releaseFromOrganizationInventory"))
+        self.assertTrue(config.is_destructive_operation("releaseFromOrganizationInventory"))
         self.assertFalse(config.is_destructive_operation("updateNetwork"))
 
 
 class DynamicServerSafetyTests(unittest.TestCase):
+    def test_inventory_release_requires_write_mode_and_confirmation(self):
+        for read_only, confirmed, expected_error in [
+            ("true", False, "Write operation blocked - READ_ONLY_MODE is enabled"),
+            ("true", True, "Write operation blocked - READ_ONLY_MODE is enabled"),
+            ("false", False, "Destructive operation requires explicit confirmation"),
+            ("false", True, None),
+        ]:
+            with self.subTest(read_only=read_only, confirmed=confirmed), patch.dict(
+                os.environ,
+                {"MERAKI_API_KEY": "dummy", "READ_ONLY_MODE": read_only,
+                 "ENABLE_FILE_CACHING": "false"},
+                clear=True,
+            ), fake_runtime_modules():
+                module = load_script_module("meraki-mcp-dynamic.py", "test_dynamic_release")
+                params = {"organizationId": "123", "serials": ["Q234-ABCD-5678"],
+                          config.CONFIRM_DESTRUCTIVE_ACTION_PARAM: confirmed}
+                response = json.loads(module._call_meraki_method_internal(
+                    "organizations", "releaseFromOrganizationInventory", params))
+                if expected_error:
+                    self.assertEqual(expected_error, response["error"])
+                    self.assertEqual([], module.dashboard.calls)
+                else:
+                    self.assertEqual("releaseFromOrganizationInventory", response["method"])
+                    self.assertEqual(1, len(module.dashboard.calls))
+                    self.assertEqual(
+                        {"organizationId": "123", "serials": ["Q234-ABCD-5678"]},
+                        module.dashboard.calls[0]["kwargs"],
+                    )
+                self.assertEqual(confirmed, params[config.CONFIRM_DESTRUCTIVE_ACTION_PARAM])
+
     def test_dynamic_dashboard_receives_configured_base_url(self):
         with patch.dict(
             os.environ,
@@ -204,6 +239,16 @@ class DynamicServerSafetyTests(unittest.TestCase):
             load_script_module("meraki-mcp-dynamic.py", "test_dynamic_base_url")
 
         self.assertEqual("https://api.meraki.cn/api/v1", dashboard_cls.instances[0].kwargs["base_url"])
+        self.assertEqual(config.DEFAULT_MERAKI_CALLER, dashboard_cls.instances[0].kwargs["caller"])
+
+    def test_dynamic_dashboard_receives_caller_override(self):
+        with patch.dict(
+            os.environ,
+            {"MERAKI_API_KEY": "dummy", "MERAKI_PYTHON_SDK_CALLER": "InventoryTool ExampleOrg"},
+            clear=True,
+        ), fake_runtime_modules() as dashboard_cls:
+            load_script_module("meraki-mcp-dynamic.py", "test_dynamic_caller")
+            self.assertEqual("InventoryTool ExampleOrg", dashboard_cls.instances[0].kwargs["caller"])
 
     def test_dynamic_blocks_writes_by_default(self):
         with patch.dict(os.environ, {"MERAKI_API_KEY": "dummy"}, clear=True), fake_runtime_modules():
@@ -268,6 +313,16 @@ class ManualServerSafetyTests(unittest.TestCase):
             load_script_module("meraki-mcp.py", "test_manual_base_url")
 
         self.assertEqual("https://api.meraki.cn/api/v1", dashboard_cls.instances[0].kwargs["base_url"])
+        self.assertEqual(config.DEFAULT_MERAKI_CALLER, dashboard_cls.instances[0].kwargs["caller"])
+
+    def test_manual_dashboard_receives_caller_override(self):
+        with patch.dict(
+            os.environ,
+            {"MERAKI_API_KEY": "dummy", "MERAKI_PYTHON_SDK_CALLER": "InventoryTool ExampleOrg"},
+            clear=True,
+        ), fake_runtime_modules() as dashboard_cls:
+            load_script_module("meraki-mcp.py", "test_manual_caller")
+            self.assertEqual("InventoryTool ExampleOrg", dashboard_cls.instances[0].kwargs["caller"])
 
     def test_manual_destructive_tool_requires_write_mode_and_confirmation(self):
         with patch.dict(os.environ, {"MERAKI_API_KEY": "dummy"}, clear=True), fake_runtime_modules():
