@@ -17,6 +17,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 from meraki_mcp_config import (
+    apply_ipv4_only_resolution,
     CONFIRM_DESTRUCTIVE_ACTION_PARAM,
     get_meraki_base_url,
     get_meraki_caller,
@@ -63,6 +64,8 @@ RESPONSE_CACHE_DIR = str(Path(_raw_cache_dir) if Path(_raw_cache_dir).is_absolut
 # Create cache directory if it doesn't exist
 if ENABLE_FILE_CACHING:
     Path(RESPONSE_CACHE_DIR).mkdir(exist_ok=True)
+
+apply_ipv4_only_resolution()
 
 # Initialize Meraki API client with optimizations
 dashboard = meraki.DashboardAPI(

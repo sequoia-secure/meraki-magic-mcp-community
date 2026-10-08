@@ -4,6 +4,7 @@
 
 import json
 import os
+import socket
 from typing import Any, MutableMapping
 
 
@@ -74,6 +75,35 @@ def get_meraki_base_url() -> str:
 def get_meraki_caller() -> str:
     configured = os.getenv("MERAKI_PYTHON_SDK_CALLER", "").strip()
     return configured or DEFAULT_MERAKI_CALLER
+
+
+_original_getaddrinfo = None
+
+
+def apply_ipv4_only_resolution() -> bool:
+    """Resolve hostnames to IPv4 addresses only when MERAKI_FORCE_IPV4 is set.
+
+    The Dashboard API publishes IPv6 addresses ahead of IPv4 ones. On hosts that
+    have an IPv6 address but no working IPv6 egress, the SDK's synchronous HTTP
+    client waits out a full connect timeout for each IPv6 address before it
+    tries IPv4. Returns True when IPv4-only resolution is active.
+    """
+    global _original_getaddrinfo
+    if _original_getaddrinfo is not None:
+        return True
+    if not env_bool("MERAKI_FORCE_IPV4", False):
+        return False
+
+    original = socket.getaddrinfo
+
+    def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        if family == socket.AF_UNSPEC:
+            family = socket.AF_INET
+        return original(host, port, family, type, proto, flags)
+
+    _original_getaddrinfo = original
+    socket.getaddrinfo = ipv4_getaddrinfo
+    return True
 
 
 def is_read_only_operation(method_name: str) -> bool:
