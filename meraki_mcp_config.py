@@ -12,28 +12,21 @@ DEFAULT_MERAKI_BASE_URL = "https://api.meraki.com/api/v1"
 DEFAULT_MERAKI_CALLER = "MagicMCP CiscoDevNet"
 CONFIRM_DESTRUCTIVE_ACTION_PARAM = "confirm_destructive_action"
 
+# Read-only mode is an allowlist: any method not matching these prefixes is a write.
 READ_ONLY_PREFIXES = ("get", "list")
-WRITE_PREFIXES = (
-    "create",
-    "update",
+DESTRUCTIVE_PREFIXES = (
     "delete",
     "remove",
     "release",
-    "claim",
-    "reboot",
-    "assign",
-    "move",
-    "renew",
-    "clone",
-    "combine",
-    "split",
-    "bind",
-    "unbind",
-    "cycle",
-    "generate",
-    "blink",
+    "wipe",
+    "lock",
+    "shutdown",
+    "unenroll",
+    "uninstall",
+    "revoke",
 )
-DESTRUCTIVE_PREFIXES = ("delete", "remove", "release")
+# Bulk/batch POST endpoints that delete, e.g. batchOrganizationSaseConnectorsDelete.
+DESTRUCTIVE_SUFFIXES = ("delete",)
 
 _TRUE_VALUES = {"1", "true", "yes", "y", "on"}
 _FALSE_VALUES = {"0", "false", "no", "n", "off"}
@@ -112,13 +105,12 @@ def is_read_only_operation(method_name: str) -> bool:
 
 
 def is_write_operation(method_name: str) -> bool:
-    normalized = method_name.lower()
-    return any(normalized.startswith(prefix) for prefix in WRITE_PREFIXES)
+    return not is_read_only_operation(method_name)
 
 
 def is_destructive_operation(method_name: str) -> bool:
     normalized = method_name.lower()
-    return any(normalized.startswith(prefix) for prefix in DESTRUCTIVE_PREFIXES)
+    return normalized.startswith(DESTRUCTIVE_PREFIXES) or normalized.endswith(DESTRUCTIVE_SUFFIXES)
 
 
 def pop_destructive_confirmation(params: MutableMapping[str, Any]) -> bool:
