@@ -61,9 +61,9 @@ cache_clear
 **Solution:** Read-only mode is enabled by default and blocks all write operations.
 
 ### How It Works:
-- Detects write operations (create, update, delete, remove, reboot, etc.)
+- Treats every method not starting with `get`/`list` as a write operation
 - If `READ_ONLY_MODE=true`, blocks write operations with clear error
-- If `READ_ONLY_MODE=false`, destructive `delete*` and `remove*` operations still require `confirm_destructive_action=true`
+- If `READ_ONLY_MODE=false`, destructive operations (`delete*`, `remove*`, `release*`, `wipe*`, `lock*`, `shutdown*`, `unenroll*`, `uninstall*`, `revoke*`, `*Delete`) still require `confirm_destructive_action=true`
 - Read operations work normally
 - Can be toggled anytime via the MCP client `env` or process environment
 

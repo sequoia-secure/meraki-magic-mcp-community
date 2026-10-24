@@ -229,6 +229,13 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.is_write_operation("releaseFromOrganizationInventory"))
         self.assertTrue(config.is_destructive_operation("releaseFromOrganizationInventory"))
         self.assertFalse(config.is_destructive_operation("updateNetwork"))
+        self.assertFalse(config.is_write_operation("getNetwork"))
+        for method in ["wipeNetworkSmDevices", "provisionNetworkClients", "swapNetworkApplianceWarmSpare",
+                       "revokeAdministeredIdentitiesMeApiKeys", "bulkUpdateOrganizationDevicesDetails"]:
+            self.assertTrue(config.is_write_operation(method), method)
+        for method in ["wipeNetworkSmDevices", "unenrollNetworkSmDevice", "shutdownNetworkSmDevices",
+                       "revokeAdministeredIdentitiesMeApiKeys", "batchOrganizationSaseConnectorsDelete"]:
+            self.assertTrue(config.is_destructive_operation(method), method)
 
 
 class DynamicServerSafetyTests(unittest.TestCase):
@@ -297,6 +304,34 @@ class DynamicServerSafetyTests(unittest.TestCase):
             )
 
             self.assertEqual("Write operation blocked - READ_ONLY_MODE is enabled", response["error"])
+            self.assertEqual([], module.dashboard.calls)
+
+    def test_dynamic_blocks_unlisted_write_verbs_by_default(self):
+        with patch.dict(os.environ, {"MERAKI_API_KEY": "dummy"}, clear=True), fake_runtime_modules():
+            module = load_script_module("meraki-mcp-dynamic.py", "test_dynamic_unlisted_verbs")
+            for section, method in [
+                ("sm", "wipeNetworkSmDevices"),
+                ("networks", "provisionNetworkClients"),
+                ("appliance", "swapNetworkApplianceWarmSpare"),
+                ("administered", "revokeAdministeredIdentitiesMeApiKeys"),
+                ("organizations", "bulkUpdateOrganizationDevicesDetails"),
+            ]:
+                with self.subTest(method=method):
+                    response = json.loads(module._call_meraki_method_internal(section, method, {}))
+                    self.assertEqual("Write operation blocked - READ_ONLY_MODE is enabled", response["error"])
+            self.assertEqual([], module.dashboard.calls)
+
+    def test_dynamic_wipe_requires_confirmation_when_writes_enabled(self):
+        with patch.dict(
+            os.environ,
+            {"MERAKI_API_KEY": "dummy", "READ_ONLY_MODE": "false"},
+            clear=True,
+        ), fake_runtime_modules():
+            module = load_script_module("meraki-mcp-dynamic.py", "test_dynamic_wipe_confirm")
+            response = json.loads(module._call_meraki_method_internal(
+                "sm", "wipeNetworkSmDevices", {"networkId": "N_123", "ids": ["1"]}))
+
+            self.assertEqual("Destructive operation requires explicit confirmation", response["error"])
             self.assertEqual([], module.dashboard.calls)
 
     def test_dynamic_requires_and_strips_destructive_confirmation(self):
