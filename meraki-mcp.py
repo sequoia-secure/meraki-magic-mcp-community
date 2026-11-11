@@ -5,6 +5,7 @@
 import os
 import sys
 import json
+import time
 import meraki
 import asyncio
 import functools
@@ -57,6 +58,24 @@ dashboard = meraki.DashboardAPI(
     single_request_timeout=20,
     wait_on_rate_limit=True,
 )
+
+# /networks/{id}/clients on a large network with a multi-day timespan can take
+# well over 20s for a single page, so get_clients uses its own client: a longer
+# per-page timeout, one attempt per request (get_clients retries a page itself,
+# only when its time budget allows). The budget keeps the whole call under the
+# proxy's toolCallTimeoutMs for this backend (150s, backends.d/endpoint/meraki.json).
+CLIENTS_PAGE_TIMEOUT_S = 45
+CLIENTS_TIME_BUDGET_S = 120
+clients_dashboard = meraki.DashboardAPI(
+    api_key=MERAKI_API_KEY,
+    base_url=MERAKI_BASE_URL,
+    caller=MERAKI_CALLER,
+    suppress_logging=True,
+    maximum_retries=1,
+    single_request_timeout=CLIENTS_PAGE_TIMEOUT_S,
+    wait_on_rate_limit=True,
+)
+_now = time.monotonic
 
 ###################
 # ASYNC UTILITIES
@@ -345,34 +364,113 @@ def update_network(network_id: str, update_data: NetworkUpdateSchema) -> str:
     result = dashboard.networks.updateNetwork(network_id, **update_dict)
     return json.dumps(result, indent=2)
 
+def _fetch_client_pages(network_id: str, params: dict, max_pages: int | None,
+                        starting_after: str | None) -> dict:
+    """Walk /networks/{id}/clients page by page within CLIENTS_TIME_BUDGET_S.
+
+    The SDK's total_pages='all' paginates with no time limit, so a slow network
+    outran the proxy's timeout and returned nothing. Paging here instead lets
+    a call stop early and hand back what it has plus a cursor to resume from.
+    The cursor is the last client's id, which is what Meraki puts in the
+    Link header's startingAfter.
+    """
+    start = _now()
+    clients: list = []
+    pages = 0
+    cursor = starting_after
+    per_page = params["perPage"]
+
+    def remaining() -> float:
+        return CLIENTS_TIME_BUDGET_S - (_now() - start)
+
+    while max_pages is None or pages < max_pages:
+        if remaining() < CLIENTS_PAGE_TIMEOUT_S:
+            reason = "time budget reached"
+            break
+        kwargs = dict(params, total_pages=1)
+        if cursor:
+            kwargs["startingAfter"] = cursor
+        try:
+            page = clients_dashboard.networks.getNetworkClients(network_id, **kwargs)
+        except Exception as first_error:
+            # One retry, and only if a full page timeout still fits the budget.
+            if remaining() < CLIENTS_PAGE_TIMEOUT_S:
+                if not clients:
+                    raise
+                reason = f"page failed and no time left to retry: {first_error}"
+                break
+            try:
+                page = clients_dashboard.networks.getNetworkClients(network_id, **kwargs)
+            except Exception as second_error:
+                if not clients:
+                    raise
+                reason = f"page failed twice: {second_error}"
+                break
+        pages += 1
+        clients.extend(page)
+        if len(page) < per_page:
+            return {"clients": clients, "count": len(clients), "complete": True,
+                    "pages": pages, "elapsed_s": round(_now() - start, 1)}
+        cursor = page[-1].get("id")
+        if not cursor:
+            reason = "page had no client id to resume from"
+            break
+    else:
+        reason = f"max_pages ({max_pages}) reached"
+
+    return {
+        "clients": clients,
+        "count": len(clients),
+        "complete": False,
+        "pages": pages,
+        "elapsed_s": round(_now() - start, 1),
+        "next_starting_after": cursor,
+        "note": (f"Partial result ({reason}). Call again with starting_after="
+                 f"'{cursor}' and the same filters to continue, or narrow the "
+                 "query with ip/mac/description filters or a shorter timespan."),
+    }
+
+
 # Get clients from Meraki
 @mcp.tool()
-def get_clients(network_id: str, timespan: int = 86400, per_page: int = 1000, total_pages: str = "all", statuses: str = None) -> str:
+async def get_clients(network_id: str, timespan: int = 86400, per_page: int = 1000,
+                      total_pages: str = "all", statuses: str = None, ip: str = None,
+                      mac: str = None, description: str = None, os_name: str = None,
+                      vlan: str = None, starting_after: str = None) -> str:
     """
-    Get a list of clients from a specific Meraki network (auto-paginates).
+    Get clients seen on a Meraki network, paginating within a ~2 minute time budget.
+
+    For lookups (who had this IP / MAC), pass ip or mac: Meraki filters
+    server-side and answers in about a second, while a full listing of a large
+    network over several days can take minutes.
 
     Args:
         network_id (str): The ID of the Meraki network.
-        timespan (int): The timespan in seconds to get clients (default: 24 hours).
-        per_page (int): Page size for the underlying Meraki API call. Min 10, max 1000.
-            Default 1000 maximizes throughput.
-        total_pages (str | int): How many pages to fetch. 'all' (default) auto-paginates
-            until the API is exhausted (the Meraki SDK walks cursors internally). Pass
-            an integer as a string (e.g. '3') to cap the fetch.
-        statuses (str): Filter by status - 'Online', 'Offline', or None for all.
+        timespan (int): Lookback in seconds (default 24 hours, max 31 days).
+        per_page (int): Clients per page, 3-5000 (default 1000).
+        total_pages (str): Maximum pages to fetch: 'all' (default) or a number like '3'.
+        statuses (str): 'Online' or 'Offline'; omit for both.
+        ip (str): Partial or full IPv4 address match.
+        mac (str): Partial or full MAC address match.
+        description (str): Partial or full client description (hostname) match.
+        os_name (str): Partial or full OS match (e.g. 'iOS', 'Android').
+        vlan (str): VLAN the client is on.
+        starting_after (str): Resume token from a previous partial result's next_starting_after.
 
     Returns:
-        str: JSON-formatted list of clients.
+        str: JSON object: clients, count, complete, pages, elapsed_s; when complete
+        is false, also next_starting_after and a note on how to continue.
     """
-    # Meraki SDK accepts total_pages='all' or an int; coerce digit strings to int.
-    tp: object = total_pages
-    if isinstance(total_pages, str) and total_pages.isdigit():
-        tp = int(total_pages)
-    kwargs = {"timespan": timespan, "perPage": per_page, "total_pages": tp}
+    max_pages: int | None = None
+    if isinstance(total_pages, int) or (isinstance(total_pages, str) and total_pages.isdigit()):
+        max_pages = int(total_pages)
+    params = _build_kwargs(timespan=timespan, perPage=per_page, ip=ip, mac=mac,
+                           description=description, os=os_name, vlan=vlan)
     if statuses:
-        kwargs["statuses"] = [statuses]
-    clients = dashboard.networks.getNetworkClients(network_id, **kwargs)
-    return json.dumps(clients, indent=2)
+        params["statuses"] = [statuses]
+    result = await asyncio.to_thread(_fetch_client_pages, network_id, params, max_pages,
+                                     starting_after)
+    return json.dumps(result, indent=2)
 
 # Get client details
 @mcp.tool()

@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import json
 import os
@@ -103,6 +104,101 @@ class FixedToolTests(unittest.TestCase):
         self.assertEqual(["SW2"], vlans[9]["switches"])
         self.assertEqual(1, vlans[14]["trunkNativePorts"])
         self.assertNotIn("name", vlans[9])
+
+    def _clients_module(self, name, pages, clock_step=0.0):
+        """Load the module with getNetworkClients serving `pages` in order.
+
+        Each entry is a list of clients or an Exception to raise. The fake
+        clock advances clock_step seconds per API call.
+        """
+        module = self.load(name)
+        calls = []
+        clock = {"t": 0.0}
+        module._now = lambda: clock["t"]
+        served = iter(pages)
+
+        def get_network_clients(network_id, **kwargs):
+            calls.append(kwargs)
+            clock["t"] += clock_step
+            page = next(served)
+            if isinstance(page, Exception):
+                raise page
+            return page
+
+        module.clients_dashboard.networks.getNetworkClients = get_network_clients
+        return module, calls
+
+    def _get_clients(self, module, **kwargs):
+        return json.loads(asyncio.run(module.get_clients("N_1", **kwargs)))
+
+    def test_get_clients_follows_the_cursor_until_a_short_page(self):
+        module, calls = self._clients_module(
+            "test_clients_paging",
+            [[{"id": "k1"}, {"id": "k2"}], [{"id": "k3"}, {"id": "k4"}], [{"id": "k5"}]],
+        )
+        result = self._get_clients(module, per_page=2, ip="10.48.20.31")
+
+        self.assertTrue(result["complete"])
+        self.assertEqual(["k1", "k2", "k3", "k4", "k5"], [c["id"] for c in result["clients"]])
+        self.assertEqual(3, result["pages"])
+        self.assertEqual([None, "k2", "k4"], [c.get("startingAfter") for c in calls])
+        self.assertTrue(all(c["total_pages"] == 1 and c["ip"] == "10.48.20.31" for c in calls))
+
+    def test_get_clients_stops_at_the_time_budget_with_a_resume_token(self):
+        # 50s per page: pages 1 and 2 fit the 120s budget, page 3 can't start.
+        module, calls = self._clients_module(
+            "test_clients_budget",
+            [[{"id": "k1"}, {"id": "k2"}], [{"id": "k3"}, {"id": "k4"}], [{"id": "k5"}]],
+            clock_step=50.0,
+        )
+        result = self._get_clients(module, per_page=2)
+
+        self.assertFalse(result["complete"])
+        self.assertEqual(2, len(calls))
+        self.assertEqual(4, result["count"])
+        self.assertEqual("k4", result["next_starting_after"])
+        self.assertIn("time budget", result["note"])
+
+        resumed, resumed_calls = self._clients_module("test_clients_resume", [[{"id": "k5"}]])
+        result = self._get_clients(resumed, per_page=2, starting_after="k4")
+        self.assertTrue(result["complete"])
+        self.assertEqual("k4", resumed_calls[0]["startingAfter"])
+
+    def test_get_clients_retries_a_failed_page_once(self):
+        module, calls = self._clients_module(
+            "test_clients_retry",
+            [[{"id": "k1"}, {"id": "k2"}], RuntimeError("503 read timed out"), [{"id": "k3"}]],
+        )
+        result = self._get_clients(module, per_page=2)
+        self.assertTrue(result["complete"])
+        self.assertEqual(3, result["count"])
+
+    def test_get_clients_returns_partial_results_when_a_later_page_keeps_failing(self):
+        module, _ = self._clients_module(
+            "test_clients_partial",
+            [[{"id": "k1"}, {"id": "k2"}], RuntimeError("boom"), RuntimeError("boom again")],
+        )
+        result = self._get_clients(module, per_page=2)
+        self.assertFalse(result["complete"])
+        self.assertEqual("k2", result["next_starting_after"])
+        self.assertIn("boom again", result["note"])
+
+    def test_get_clients_raises_when_the_first_page_fails(self):
+        module, _ = self._clients_module(
+            "test_clients_first_fail", [RuntimeError("boom"), RuntimeError("boom again")],
+        )
+        with self.assertRaises(RuntimeError):
+            asyncio.run(module.get_clients("N_1"))
+
+    def test_get_clients_honors_total_pages(self):
+        module, calls = self._clients_module(
+            "test_clients_max_pages",
+            [[{"id": "k1"}, {"id": "k2"}], [{"id": "k3"}, {"id": "k4"}]],
+        )
+        result = self._get_clients(module, per_page=2, total_pages="1")
+        self.assertFalse(result["complete"])
+        self.assertEqual(1, len(calls))
+        self.assertIn("max_pages", result["note"])
 
     def test_vlan_list_parsing(self):
         module = self.load("test_vlan_parse")
