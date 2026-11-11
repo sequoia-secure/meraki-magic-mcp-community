@@ -136,13 +136,13 @@ class FixedToolTests(unittest.TestCase):
             "test_clients_paging",
             [[{"id": "k1"}, {"id": "k2"}], [{"id": "k3"}, {"id": "k4"}], [{"id": "k5"}]],
         )
-        result = self._get_clients(module, per_page=2, ip="10.48.20.31")
+        result = self._get_clients(module, per_page=2, ip="192.0.2.10")
 
         self.assertTrue(result["complete"])
         self.assertEqual(["k1", "k2", "k3", "k4", "k5"], [c["id"] for c in result["clients"]])
         self.assertEqual(3, result["pages"])
         self.assertEqual([None, "k2", "k4"], [c.get("startingAfter") for c in calls])
-        self.assertTrue(all(c["total_pages"] == 1 and c["ip"] == "10.48.20.31" for c in calls))
+        self.assertTrue(all(c["total_pages"] == 1 and c["ip"] == "192.0.2.10" for c in calls))
 
     def test_get_clients_stops_at_the_time_budget_with_a_resume_token(self):
         # 50s per page: pages 1 and 2 fit the 120s budget, page 3 can't start.
