@@ -7,7 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     # Upper bounds hold each dependency below its next major: mcp 2.x removed
     # mcp.server.fastmcp, which this server imports.
-    "fastmcp>=3.4.4,<4",
+    "fastmcp>=3.4.10,<4",
     "mcp[cli]>=1.28.1,<2",
     "meraki>=4.5.0,<5",
     "uvicorn>=0.51.0",
