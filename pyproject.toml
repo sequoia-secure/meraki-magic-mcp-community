@@ -9,6 +9,6 @@ dependencies = [
     # mcp.server.fastmcp, which this server imports.
     "fastmcp>=3.4.4,<4",
     "mcp[cli]>=1.28.1,<2",
-    "meraki>=4.5.0,<5",
+    "meraki>=4.7,<5",
     "uvicorn>=0.51.0",
 ]

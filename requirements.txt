@@ -30,6 +30,7 @@ caio==0.12.9
     # via aiofile
 certifi==2026.10.23
     # via
+    #   fastmcp-slim
     #   httpcore
     #   httpx
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
@@ -54,9 +55,9 @@ email-validator==2.3.0
     # via pydantic
 exceptiongroup==1.3.1
     # via fastmcp-slim
-fastmcp==3.4.7
+fastmcp==3.4.11
     # via meraki-magic-mcp
-fastmcp-slim==3.4.7
+fastmcp-slim==3.4.11
     # via fastmcp
 griffelib==2.3.0
     # via fastmcp-slim
@@ -88,7 +89,7 @@ jeepney==0.9.0 ; sys_platform == 'linux'
     # via
     #   keyring
     #   secretstorage
-joserfc==1.7.6
+joserfc==1.8.0
     # via
     #   authlib
     #   fastmcp-slim
@@ -110,7 +111,7 @@ mcp==1.30.0
     #   meraki-magic-mcp
 mdurl==0.1.2
     # via markdown-it-py
-meraki==4.5.0
+meraki==4.7.0
     # via meraki-magic-mcp
 more-itertools==11.1.0
     # via
