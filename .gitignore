@@ -33,6 +33,7 @@ env/
 *.swp
 *.swo
 .gemini
+.claude/
 
 # OS
 .DS_Store
