@@ -279,8 +279,8 @@ def _call_meraki_method_internal(section: str, method: str, params: dict) -> str
     original_params = params.copy()
 
     try:
-        # Validate section
-        if not hasattr(dashboard, section):
+        # Validate section against the SDK allowlist before any getattr
+        if section not in _METHOD_INDEX:
             return json.dumps({
                 "error": f"Invalid section '{section}'",
                 "available_sections": SDK_SECTIONS
@@ -288,8 +288,8 @@ def _call_meraki_method_internal(section: str, method: str, params: dict) -> str
 
         section_obj = getattr(dashboard, section)
 
-        # Validate method
-        if not hasattr(section_obj, method):
+        # Validate method against the public method index
+        if method not in _METHOD_INDEX[section]:
             return json.dumps({
                 "error": f"Method '{method}' not found in section '{section}'"
             }, indent=2)
@@ -600,7 +600,7 @@ async def get_method_info(section: str, method: str) -> str:
         method: Method name (e.g., 'getOrganizationAdmins')
     """
     try:
-        if not hasattr(dashboard, section):
+        if section not in _METHOD_INDEX:
             return json.dumps({
                 "error": f"Section '{section}' not found",
                 "available_sections": SDK_SECTIONS
@@ -608,7 +608,7 @@ async def get_method_info(section: str, method: str) -> str:
 
         section_obj = getattr(dashboard, section)
 
-        if not hasattr(section_obj, method):
+        if method not in _METHOD_INDEX[section]:
             return json.dumps({
                 "error": f"Method '{method}' not found in '{section}'"
             }, indent=2)

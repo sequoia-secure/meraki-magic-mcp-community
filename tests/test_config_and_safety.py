@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import json
 import os
@@ -47,6 +48,7 @@ class FakeSection:
         return [
             "deleteNetwork",
             "getNetwork",
+            "releaseFromOrganizationInventory",
             "removeNetworkDevices",
             "updateDeviceSwitchPort",
         ]
@@ -298,6 +300,29 @@ class DynamicServerSafetyTests(unittest.TestCase):
 
             self.assertEqual("Write operation blocked - READ_ONLY_MODE is enabled", response["error"])
             self.assertEqual([], module.dashboard.calls)
+
+    def test_dynamic_refuses_non_sdk_sections_and_private_methods(self):
+        with patch.dict(os.environ, {"MERAKI_API_KEY": "dummy"}, clear=True), fake_runtime_modules():
+            module = load_script_module("meraki-mcp-dynamic.py", "test_dynamic_reflection")
+            module.dashboard._session = FakeSection("_session", module.dashboard.calls)
+            attrs_before = dict(vars(module.dashboard))
+            for section, method in [
+                ("_session", "request"),
+                ("_session", "get"),
+                ("_session", "post"),
+                ("__dict__", "clear"),
+                ("networks", "_session"),
+                ("networks", "__init__"),
+            ]:
+                with self.subTest(section=section, method=method):
+                    params = {"method": "DELETE", "url": "/networks/N_1"}
+                    response = json.loads(module._call_meraki_method_internal(section, method, params))
+                    info = json.loads(asyncio.run(module.get_method_info(section, method)))
+                    self.assertIn("error", response)
+                    self.assertIn("error", info)
+                    self.assertNotIn("parameters", info)
+            self.assertEqual([], module.dashboard.calls)
+            self.assertEqual(attrs_before, vars(module.dashboard))
 
     def test_dynamic_requires_and_strips_destructive_confirmation(self):
         with patch.dict(
